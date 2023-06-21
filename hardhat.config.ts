@@ -10,6 +10,12 @@ const config: HardhatUserConfig = {
       gasPrice: 20000000000,
       accounts: [`0x${PRIVATE_KEY}`],
     },
+    hardhat: {
+      forking: {
+        url: 'https://mainnet.infura.io/v3/98f137a7f91a4564bc3aedbcbfbb4e06',
+        blockNumber: 17518606,
+      },
+    },
   },
   solidity: {
     version: '0.8.19',
