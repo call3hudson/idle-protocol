@@ -11,6 +11,7 @@
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^2.0.2",
     "hardhat": "^2.14.0",
+    "hardhat-deploy": "^0.11.34",
     "prettier": "^2.8.8",
     "solhint": "^3.4.1",
     "ts-node": "^10.9.1",

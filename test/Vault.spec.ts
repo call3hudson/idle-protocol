@@ -48,11 +48,22 @@ describe('Vault', function () {
     )) as Vault__factory;
     vault = await Vault.connect(owner).deploy(byStrategy.address);
     await vault.deployed();
+
+    await byStrategy.connect(owner).setUser(vault.address);
+    await newStrategy.connect(owner).setUser(vault.address);
   });
 
   describe('constructor', () => {
     it('Should check the initial value', async () => {
       expect(await vault.strategy()).to.be.eq(byStrategy.address);
+    });
+  });
+
+  describe('receive', () => {
+    it('Should prevent non-strategy deposit ether', async () => {
+      await expect(user0.sendTransaction({ value: v100, to: vault.address })).to.revertedWith(
+        'WETH: Only strategy can send ether'
+      );
     });
   });
 
@@ -136,6 +147,28 @@ describe('Vault', function () {
       await expect(vault.invest())
         .to.emit(vault, 'Invested')
         .withArgs(owner.address, expectedAmount);
+    });
+  });
+
+  describe('#rebalance', () => {
+    it('Should prevent non-owner call this function', async () => {
+      await expect(vault.connect(user0).rebalance()).to.revertedWith(
+        'Ownable: caller is not the owner'
+      );
+    });
+
+    it('Should prevent zero rebalance', async () => {
+      await expect(vault.rebalance()).to.revertedWith('Vault: No ether to rebalance');
+    });
+
+    it('Should check the valid rebalance', async () => {
+      await vault.connect(user0).deposit({ value: v1000 });
+      await vault.invest();
+
+      await vault.connect(user0).withdraw(v10.div(2));
+      await expect(vault.rebalance())
+        .to.emit(vault, 'Rebalanced')
+        .withArgs(owner.address, parseUnits('44999999999999999999', 0));
     });
   });
 

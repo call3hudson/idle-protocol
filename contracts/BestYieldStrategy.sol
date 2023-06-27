@@ -16,11 +16,11 @@ import './interfaces/IIdleToken.sol';
  * @notice  Any contracts can store this strategy interface and earn interests from the Idle protocol.
  */
 
-contract BestYieldStrategy is IStrategy, ReentrancyGuard {
+contract BestYieldStrategy is IStrategy, ReentrancyGuard, Ownable {
   using SafeERC20 for IERC20;
 
-  // Records how much did every depositor deposit
-  mapping(address => uint256) private depositedAmount_;
+  // User of BestYieldStrategy - Vault
+  address public user;
 
   // Deployed addresses of WETH and YIELD in ethereum mainnet
   address public constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
@@ -30,15 +30,27 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard {
   event Minted(address indexed sender, uint amountDeposited, uint idleMinted);
   event Withdrawn(address indexed sender, uint amountWithdrawn, uint idleWithdrawn);
   event WithdrawnAll(address indexed sender, uint amountWithdrawn, uint idleWithdrawn);
+  event NewUser(address indexed sender, address indexed former, address indexed user);
+
+  /**
+   * @notice  If another user tries to call function with this modifier, reverts.
+   * @dev     Only user can pass in this modifier.
+   */
+  modifier onlyUser() {
+    require(msg.sender == user, 'Strategy: Only user can call this function');
+    _;
+  }
 
   // !Important : Since strategy receives ether when withdrawing from WETH
-  receive() external payable {}
+  receive() external payable {
+    require(msg.sender == WETH, 'Strategy: Only WETH can send ether');
+  }
 
   /**
    * @notice  Sender sends eth and registered to be a liquidity provider.
    * @dev     Convert ether to WETH, stores the amount deposited and move WETH to the Idle Protocol.
    */
-  function mint() external payable {
+  function mint() external payable onlyUser {
     // Check if no ether provided
     require(msg.value > 0, 'Strategy: Invalid Ether amount');
 
@@ -52,8 +64,6 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard {
     IERC20(WETH).safeApprove(YIELD, supply);
     uint256 amountMinted = IIdleToken(YIELD).mintIdleToken(supply, true, address(0));
 
-    // Update records as well
-    depositedAmount_[msg.sender] += amountMinted;
     emit Minted(msg.sender, msg.value, amountMinted);
   }
 
@@ -62,7 +72,7 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard {
    * @dev     Redeem WETH from Idle Protocol and withdraw WETH to ether. Update record as well.
    * @param   amountToWithdraw_  Amount of ether need for msg.sender.
    */
-  function withdraw(uint256 amountToWithdraw_) external {
+  function withdraw(uint256 amountToWithdraw_) external onlyUser {
     // Check the validation
     require(amountToWithdraw_ > 0, 'Strategy: Invalid amount');
 
@@ -71,27 +81,44 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard {
     uint256 idleAmount = ((amountToWithdraw_ * 1e18) / tokenPrice) + 1;
 
     // Check if the sender has enough idle token for redeeming
-    require(depositedAmount_[msg.sender] >= idleAmount, 'Strategy: Insufficient amount');
+    require(IERC20(YIELD).balanceOf(address(this)) >= idleAmount, 'Strategy: Insufficient amount');
 
-    // Redeem idle token and get the actual amount withdrawn
-    uint256 amountWithdrawn = _withdrawFromIdle(msg.sender, idleAmount);
+    // Redeem idle token from the Idle Protocol and receive WETH to the Strategy address
+    uint256 redeemedAmount = IIdleToken(YIELD).redeemIdleToken(idleAmount);
+    assert(redeemedAmount >= amountToWithdraw_);
 
-    emit Withdrawn(msg.sender, amountWithdrawn, idleAmount);
+    // Withdraw WETH to ether - receive() function needed
+    IWETH(WETH).withdraw(redeemedAmount);
+
+    // Transfer withdrawn eth to the sender
+    (bool success, ) = (msg.sender).call{ value: amountToWithdraw_ }('');
+    require(success, 'Strategy: Transfer failed.');
+
+    emit Withdrawn(msg.sender, amountToWithdraw_, idleAmount);
   }
 
   /**
    * @notice  Depositors withdraw the whole amount of stored ether.
    * @dev     Redeem WETH from Idle Protocol and withdraw WETH to ether. Update record as well.
    */
-  function withdrawAll() external {
+  function withdrawAll() external nonReentrant onlyUser {
     // Check if sender is provider
-    require(depositedAmount_[msg.sender] > 0, 'Strategy: Provide underlying token first');
+    require(IERC20(YIELD).balanceOf(address(this)) > 0, 'Strategy: Provide underlying token first');
 
     // Redeem out the whole idle token stored in the sender address
-    uint256 idleAmount = depositedAmount_[msg.sender];
-    uint256 amountWithdrawn = _withdrawFromIdle(msg.sender, idleAmount);
+    uint256 idleAmount = IERC20(YIELD).balanceOf(address(this));
 
-    emit WithdrawnAll(msg.sender, amountWithdrawn, idleAmount);
+    // Redeem idle token from the Idle Protocol and receive WETH to the Strategy address
+    uint256 redeemedAmount = IIdleToken(YIELD).redeemIdleToken(idleAmount);
+
+    // Withdraw WETH to ether - receive() function needed
+    IWETH(WETH).withdraw(redeemedAmount);
+
+    // Transfer withdrawn eth to the sender
+    (bool success, ) = (msg.sender).call{ value: redeemedAmount }('');
+    require(success, 'Strategy: Transfer failed.');
+
+    emit WithdrawnAll(msg.sender, redeemedAmount, idleAmount);
   }
 
   /**
@@ -99,36 +126,20 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard {
    * @dev     Get the current Idle token price and multiplies to the supply.
    * @return  uint256  Expected amount to be withdrawn.
    */
-  function getExpectedWithdraw() external view returns (uint256) {
+  function getExpectedWithdraw() external view onlyUser returns (uint256) {
     // Get the currrent token price to be withdrawn and multiplies to the supply
     uint256 tokenPrice = IIdleToken(YIELD).tokenPrice();
-    uint256 supply = depositedAmount_[msg.sender];
-    return (supply * tokenPrice) / 1e18;
+    return (IERC20(YIELD).balanceOf(address(this)) * tokenPrice) / 1e18;
   }
 
   /**
-   * @notice  Actual routine for withdrawing ether from Idle.
-   * @dev     Redeem underlying WETH and convert to ether.
-   * @param   sender_  Sender wanted to withdraw assets.
-   * @param   idleAmount_  Amount of Idle token to be redeemed.
-   * @return  uint256  Redeemed WETH amount.
+   * @notice  Set new strategy user.
+   * @dev     Owner changes new user.
+   * @param   user_  .
    */
-  function _withdrawFromIdle(
-    address sender_,
-    uint256 idleAmount_
-  ) internal nonReentrant returns (uint256) {
-    // Redeem idle token from the Idle Protocol and receive WETH to the Strategy address
-    uint256 redeemedAmount = IIdleToken(YIELD).redeemIdleToken(idleAmount_);
-
-    // Withdraw WETH to ether - receive() function needed
-    IWETH(WETH).withdraw(redeemedAmount);
-
-    // Transfer withdrawn eth to the sender
-    payable(sender_).transfer(redeemedAmount);
-
-    // Update records as well
-    depositedAmount_[sender_] -= idleAmount_;
-
-    return redeemedAmount;
+  function setUser(address user_) external onlyOwner {
+    address former = user;
+    user = user_;
+    emit NewUser(msg.sender, former, user);
   }
 }

@@ -20,6 +20,7 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
   event Deposited(address indexed sender, uint amountDeposited, uint yETH);
   event Withdrawn(address indexed sender, uint amountWithdrawn, uint yETH);
   event Invested(address indexed sender, uint amountInvested);
+  event Rebalanced(address indexed sender, uint amountRebalanced);
   event StrategyChanged(address indexed sender, IStrategy former, IStrategy latter);
 
   // Set the default strategy of vault - can be changed upon calling changeStrategy()
@@ -28,7 +29,9 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
   }
 
   // Must be declared to receive ether from strategies
-  receive() external payable {}
+  receive() external payable {
+    require(msg.sender == address(strategy), 'WETH: Only strategy can send ether');
+  }
 
   /**
    * @notice  Deposit ether and receives yETH according to the rate set by the first depositor. If nobody deposited, then it will mint 100 yETH.
@@ -75,7 +78,8 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
     }
 
     // Send actual amount of ether to the caller
-    payable(msg.sender).transfer(amountToReturn);
+    (bool success, ) = (msg.sender).call{ value: amountToReturn }('');
+    require(success, 'Vault: Transfer failed.');
 
     // Burns amountYEth_ that is already withdrawn
     _burn(msg.sender, amountYEth_);
@@ -85,19 +89,38 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
 
   /**
    * @notice  Invest 90% of ethers inside the contract to the strategy.
-   * @dev     Owner can invest 90% of currently remaining ethers to the strategy.
+   * @dev     Owner can invest 90% of total balance to the strategy.
    */
   function invest() external onlyOwner {
     // Check the possibility of investing
-    require(address(this).balance > 0, 'Vault: No ether to invest');
+    uint256 totalDeposited = address(this).balance + strategy.getExpectedWithdraw();
+    require(address(this).balance * 10 > totalDeposited, 'Vault: No ether to invest');
 
-    // Calculate 90% of remaining ether
-    uint256 amount = (address(this).balance * 9) / 10;
+    // Calculate 90% of total ether
+    uint256 amount = address(this).balance - (totalDeposited / 10);
 
     // Provide ethers to the strategy
     strategy.mint{ value: amount }();
 
     emit Invested(msg.sender, amount);
+  }
+
+  /**
+   * @notice  Rebalance to keep 10% of total balance inside the vault contract.
+   * @dev     Owner can keep 10% of total balance inside the vault.
+   */
+  function rebalance() external onlyOwner {
+    // Check the possibility of rebalancing
+    uint256 totalDeposited = address(this).balance + strategy.getExpectedWithdraw();
+    require(address(this).balance < (totalDeposited / 10), 'Vault: No ether to rebalance');
+
+    // Calculate 10% of total ether
+    uint256 amount = (totalDeposited / 10) - address(this).balance;
+
+    // Withdraw required ethers from the strategy
+    strategy.withdraw(amount);
+
+    emit Rebalanced(msg.sender, amount);
   }
 
   /**

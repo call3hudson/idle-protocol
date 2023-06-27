@@ -6,7 +6,6 @@ import { parseUnits } from 'ethers/lib/utils';
 
 describe('BestYieldStrategy', function () {
   let byStrategy: BestYieldStrategy;
-  let byReentrancy: BYReentrancy;
 
   let owner: SignerWithAddress;
   let user0: SignerWithAddress;
@@ -31,11 +30,29 @@ describe('BestYieldStrategy', function () {
     )) as BestYieldStrategy__factory;
     byStrategy = await BYStrategy.connect(owner).deploy();
     await byStrategy.deployed();
+
+    await byStrategy.connect(owner).setUser(user0.address);
+  });
+
+  describe('receive', () => {
+    it('Should prevent non-WETH deposit ether', async () => {
+      await expect(user0.sendTransaction({ value: v100, to: byStrategy.address })).to.revertedWith(
+        'Strategy: Only WETH can send ether'
+      );
+    });
   });
 
   describe('#mint', () => {
     it('Should check the initial values', async () => {
-      await expect(byStrategy.mint({ value: 0 })).to.revertedWith('Strategy: Invalid Ether amount');
+      await expect(byStrategy.connect(user0).mint({ value: 0 })).to.revertedWith(
+        'Strategy: Invalid Ether amount'
+      );
+    });
+
+    it('Should prevent non-vault contract to call function', async () => {
+      await expect(byStrategy.connect(owner).mint({ value: 0 })).to.revertedWith(
+        'Strategy: Only user can call this function'
+      );
     });
 
     it('Should check the valid minting', async () => {
@@ -47,7 +64,15 @@ describe('BestYieldStrategy', function () {
 
   describe('#withdraw', () => {
     it('Should check the initial values', async () => {
-      await expect(byStrategy.withdraw(0)).to.revertedWith('Strategy: Invalid amount');
+      await expect(byStrategy.connect(user0).withdraw(0)).to.revertedWith(
+        'Strategy: Invalid amount'
+      );
+    });
+
+    it('Should prevent non-vault contract to call function', async () => {
+      await expect(byStrategy.connect(owner).withdraw(0)).to.revertedWith(
+        'Strategy: Only user can call this function'
+      );
     });
 
     it('Should check the insufficiency', async () => {
@@ -73,6 +98,12 @@ describe('BestYieldStrategy', function () {
       );
     });
 
+    it('Should prevent non-vault contract to call function', async () => {
+      await expect(byStrategy.connect(owner).withdrawAll()).to.revertedWith(
+        'Strategy: Only user can call this function'
+      );
+    });
+
     it('Should check the valid withdraw', async () => {
       await byStrategy.connect(user0).mint({ value: v1000 });
 
@@ -87,10 +118,30 @@ describe('BestYieldStrategy', function () {
   });
 
   describe('#getExpectedWithdraw', () => {
+    it('Should prevent non-vault contract to call function', async () => {
+      await expect(byStrategy.connect(owner).getExpectedWithdraw()).to.revertedWith(
+        'Strategy: Only user can call this function'
+      );
+    });
+
     it('Should check the expected withdraw', async () => {
       await byStrategy.connect(user0).mint({ value: v1000 });
       const withdraw = await byStrategy.connect(user0).getExpectedWithdraw();
       expect(withdraw).to.be.eq(parseUnits('999999999999999999999', 0));
+    });
+  });
+
+  describe('#setUser', () => {
+    it('Should check if non-owner can set new user', async () => {
+      await expect(byStrategy.connect(user0).setUser(user0.address)).revertedWith(
+        'Ownable: caller is not the owner'
+      );
+    });
+
+    it('Should check the valid user reset', async () => {
+      await expect(byStrategy.setUser(owner.address))
+        .to.emit(byStrategy, 'NewUser')
+        .withArgs(owner.address, user0.address, owner.address);
     });
   });
 });
