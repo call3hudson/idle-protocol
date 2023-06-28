@@ -17,6 +17,9 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
   // Interface to the interest earning strategy
   IStrategy public strategy;
 
+  // Maximum slippage percent that could be ignored
+  uint256 public constant SLIPPAGE = 5;
+
   event Deposited(address indexed sender, uint amountDeposited, uint yETH);
   event Withdrawn(address indexed sender, uint amountWithdrawn, uint yETH);
   event Invested(address indexed sender, uint amountInvested);
@@ -43,13 +46,14 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
 
     // Calculate amount of yETH to be minted - if nobody minted, 100 yETH would be taken
     uint256 amountToMint;
+    (uint256 spotAmount, uint256 oracleAmount) = strategy.getExpectedWithdraw();
+    require(validate(spotAmount, oracleAmount), 'Vault: Tolerance rate exceeded');
+
     if (totalSupply() == 0)
       amountToMint = 1e20;
       // Add current balance and expected balance in strategy
     else
-      amountToMint =
-        (totalSupply() * msg.value) /
-        (strategy.getExpectedWithdraw() + address(this).balance - msg.value);
+      amountToMint = (totalSupply() * msg.value) / (spotAmount + address(this).balance - msg.value);
 
     // Mint yETH
     _mint(msg.sender, amountToMint);
@@ -68,8 +72,10 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
     require(amountYEth_ <= balanceOf(msg.sender), 'Vault: Insufficient yETH');
 
     // Calculate the amount of corresponding ether
-    uint256 amountToReturn = (amountYEth_ *
-      (strategy.getExpectedWithdraw() + address(this).balance)) / totalSupply();
+    (uint256 spotAmount, uint256 oracleAmount) = strategy.getExpectedWithdraw();
+    require(validate(spotAmount, oracleAmount), 'Vault: Tolerance rate exceeded');
+
+    uint256 amountToReturn = (amountYEth_ * (spotAmount + address(this).balance)) / totalSupply();
 
     // If the ether inside the contract is insufficient, then we need to get ether from strategies
     if (amountToReturn > address(this).balance) {
@@ -93,7 +99,10 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
    */
   function invest() external onlyOwner {
     // Check the possibility of investing
-    uint256 totalDeposited = address(this).balance + strategy.getExpectedWithdraw();
+    (uint256 spotAmount, uint256 oracleAmount) = strategy.getExpectedWithdraw();
+    require(validate(spotAmount, oracleAmount), 'Vault: Tolerance rate exceeded');
+
+    uint256 totalDeposited = address(this).balance + spotAmount;
     require(address(this).balance * 10 > totalDeposited, 'Vault: No ether to invest');
 
     // Calculate 90% of total ether
@@ -111,7 +120,10 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
    */
   function rebalance() external onlyOwner {
     // Check the possibility of rebalancing
-    uint256 totalDeposited = address(this).balance + strategy.getExpectedWithdraw();
+    (uint256 spotAmount, uint256 oracleAmount) = strategy.getExpectedWithdraw();
+    require(validate(spotAmount, oracleAmount), 'Vault: Tolerance rate exceeded');
+
+    uint256 totalDeposited = address(this).balance + spotAmount;
     require(address(this).balance < (totalDeposited / 10), 'Vault: No ether to rebalance');
 
     // Calculate 10% of total ether
@@ -137,5 +149,26 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
     strategy = strategy_;
 
     emit StrategyChanged(msg.sender, former, strategy);
+  }
+
+  /**
+   * @notice  Validate the expected withdraw.
+   * @dev     Check that two values are in the tolerance range.
+   * @param   spotAmount_  Expected withdraw based on spot price.
+   * @param   oracleAmount_  Expected withdraw based on oracle price.
+   * @return  bool  Returns true if validated.
+   */
+  function validate(uint256 spotAmount_, uint256 oracleAmount_) internal pure returns (bool) {
+    if (oracleAmount_ == spotAmount_) return true;
+
+    // In case of oracle price is bigger than spot price
+    if (oracleAmount_ > spotAmount_ && ((spotAmount_ * (100 + SLIPPAGE)) / 100 > oracleAmount_))
+      return true;
+
+    // Otherwise
+    if (oracleAmount_ < spotAmount_ && ((oracleAmount_ * (100 + SLIPPAGE)) / 100 > spotAmount_))
+      return true;
+
+    return false;
   }
 }

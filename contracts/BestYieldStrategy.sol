@@ -8,6 +8,7 @@ import '@openzeppelin/contracts/security/ReentrancyGuard.sol';
 import './interfaces/IStrategy.sol';
 import './interfaces/IWETH.sol';
 import './interfaces/IIdleToken.sol';
+import './interfaces/IAPIConsumer.sol';
 
 /**
  * @author  Huang.
@@ -21,16 +22,21 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard, Ownable {
 
   // User of BestYieldStrategy - Vault
   address public user;
+  address public oracle;
 
   // Deployed addresses of WETH and YIELD in ethereum mainnet
   address public constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
   address public constant YIELD = 0xC8E6CA6E96a326dC448307A5fDE90a0b21fd7f80;
+
+  // Maximum slippage percent that could be ignored
+  uint256 public constant SLIPPAGE = 5;
 
   // Occured when corresponding action triggered
   event Minted(address indexed sender, uint amountDeposited, uint idleMinted);
   event Withdrawn(address indexed sender, uint amountWithdrawn, uint idleWithdrawn);
   event WithdrawnAll(address indexed sender, uint amountWithdrawn, uint idleWithdrawn);
   event NewUser(address indexed sender, address indexed former, address indexed user);
+  event NewOracle(address indexed sender, address indexed former, address indexed user);
 
   /**
    * @notice  If another user tries to call function with this modifier, reverts.
@@ -53,6 +59,10 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard, Ownable {
   function mint() external payable onlyUser {
     // Check if no ether provided
     require(msg.value > 0, 'Strategy: Invalid Ether amount');
+
+    // Check the validity of spot price
+    uint256 tokenPrice = IIdleToken(YIELD).tokenPrice();
+    require(validatePrice(tokenPrice), 'Strategy: Tolerance rate exceeded');
 
     // Deposit eth to WETH contract and gain corresponding WETH
     IWETH(WETH).deposit{ value: msg.value }();
@@ -78,6 +88,8 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard, Ownable {
 
     // Get the current price to buy and figure out how much idle token to be burned
     uint256 tokenPrice = IIdleToken(YIELD).tokenPrice();
+    require(validatePrice(tokenPrice), 'Strategy: Tolerance rate exceeded');
+
     uint256 idleAmount = ((amountToWithdraw_ * 1e18) / tokenPrice) + 1;
 
     // Check if the sender has enough idle token for redeeming
@@ -105,6 +117,10 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard, Ownable {
     // Check if sender is provider
     require(IERC20(YIELD).balanceOf(address(this)) > 0, 'Strategy: Provide underlying token first');
 
+    // Check the validity of spot price
+    uint256 tokenPrice = IIdleToken(YIELD).tokenPrice();
+    require(validatePrice(tokenPrice), 'Strategy: Tolerance rate exceeded');
+
     // Redeem out the whole idle token stored in the sender address
     uint256 idleAmount = IERC20(YIELD).balanceOf(address(this));
 
@@ -126,20 +142,54 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard, Ownable {
    * @dev     Get the current Idle token price and multiplies to the supply.
    * @return  uint256  Expected amount to be withdrawn.
    */
-  function getExpectedWithdraw() external view onlyUser returns (uint256) {
+  function getExpectedWithdraw() external view onlyUser returns (uint256, uint256) {
     // Get the currrent token price to be withdrawn and multiplies to the supply
-    uint256 tokenPrice = IIdleToken(YIELD).tokenPrice();
-    return (IERC20(YIELD).balanceOf(address(this)) * tokenPrice) / 1e18;
+    uint256 spotPrice = IIdleToken(YIELD).tokenPrice();
+    uint256 oraclePrice = IAPIConsumer(oracle).getValue();
+
+    uint256 totalSupply = IERC20(YIELD).balanceOf(address(this));
+
+    return ((spotPrice * totalSupply) / 1e18, (oraclePrice * totalSupply) / 1e18);
   }
 
   /**
    * @notice  Set new strategy user.
    * @dev     Owner changes new user.
-   * @param   user_  .
+   * @param   user_  Address to be set.
    */
   function setUser(address user_) external onlyOwner {
     address former = user;
     user = user_;
     emit NewUser(msg.sender, former, user);
+  }
+
+  /**
+   * @notice  Set new oracle.
+   * @dev     Owner changes new oracle.
+   * @param   oracle_  Address to be set.
+   */
+  function setOracle(address oracle_) external onlyOwner {
+    address former = oracle;
+    oracle = oracle_;
+    emit NewOracle(msg.sender, former, oracle);
+  }
+
+  /**
+   * @notice  Returns if spot price was not forged.
+   * @dev     Check if the spot price is within the range of oracle price with tolerance slippage percent.
+   * @param   price_  Target price.
+   * @return  bool  Returns true if validated.
+   */
+  function validatePrice(uint256 price_) internal view returns (bool) {
+    // Get the oracle price
+    uint256 oraclePrice = IAPIConsumer(oracle).getValue();
+
+    // In case of oracle price is bigger than spot price
+    if (oraclePrice > price_ && ((price_ * (100 + SLIPPAGE)) / 100 > oraclePrice)) return true;
+
+    // Otherwise
+    if (oraclePrice < price_ && ((oraclePrice * (100 + SLIPPAGE)) / 100 > price_)) return true;
+
+    return false;
   }
 }

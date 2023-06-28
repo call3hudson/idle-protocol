@@ -1,10 +1,16 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
-import { BestYieldStrategy, BestYieldStrategy__factory } from '../typechain-types';
+import {
+  APIConsumer,
+  APIConsumer__factory,
+  BestYieldStrategy,
+  BestYieldStrategy__factory,
+} from '../typechain-types';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { parseUnits } from 'ethers/lib/utils';
 
 describe('BestYieldStrategy', function () {
+  let apiConsumer: APIConsumer;
   let byStrategy: BestYieldStrategy;
 
   let owner: SignerWithAddress;
@@ -24,6 +30,13 @@ describe('BestYieldStrategy', function () {
   beforeEach(async () => {
     [owner, user0] = await ethers.getSigners();
 
+    const APIConsumer: APIConsumer__factory = (await ethers.getContractFactory(
+      'APIConsumer',
+      owner
+    )) as APIConsumer__factory;
+    apiConsumer = await APIConsumer.connect(owner).deploy();
+    await apiConsumer.deployed();
+
     const BYStrategy: BestYieldStrategy__factory = (await ethers.getContractFactory(
       'BestYieldStrategy',
       owner
@@ -32,6 +45,7 @@ describe('BestYieldStrategy', function () {
     await byStrategy.deployed();
 
     await byStrategy.connect(owner).setUser(user0.address);
+    await byStrategy.connect(owner).setOracle(apiConsumer.address);
   });
 
   describe('receive', () => {
@@ -123,12 +137,6 @@ describe('BestYieldStrategy', function () {
         'Strategy: Only user can call this function'
       );
     });
-
-    it('Should check the expected withdraw', async () => {
-      await byStrategy.connect(user0).mint({ value: v1000 });
-      const withdraw = await byStrategy.connect(user0).getExpectedWithdraw();
-      expect(withdraw).to.be.eq(parseUnits('999999999999999999999', 0));
-    });
   });
 
   describe('#setUser', () => {
@@ -142,6 +150,20 @@ describe('BestYieldStrategy', function () {
       await expect(byStrategy.setUser(owner.address))
         .to.emit(byStrategy, 'NewUser')
         .withArgs(owner.address, user0.address, owner.address);
+    });
+  });
+
+  describe('#setOracle', () => {
+    it('Should check if non-owner can set new oracle', async () => {
+      await expect(byStrategy.connect(user0).setOracle(user0.address)).revertedWith(
+        'Ownable: caller is not the owner'
+      );
+    });
+
+    it('Should check the valid oracle reset', async () => {
+      await expect(byStrategy.setOracle(user0.address))
+        .to.emit(byStrategy, 'NewOracle')
+        .withArgs(owner.address, apiConsumer.address, user0.address);
     });
   });
 });

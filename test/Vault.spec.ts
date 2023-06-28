@@ -1,8 +1,10 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import {
+  APIConsumer,
   BestYieldStrategy,
   Vault,
+  APIConsumer__factory,
   BestYieldStrategy__factory,
   Vault__factory,
 } from '../typechain-types';
@@ -10,6 +12,7 @@ import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { parseUnits } from 'ethers/lib/utils';
 
 describe('Vault', function () {
+  let apiConsumer: APIConsumer;
   let byStrategy: BestYieldStrategy;
   let newStrategy: BestYieldStrategy;
   let vault: Vault;
@@ -32,6 +35,13 @@ describe('Vault', function () {
   beforeEach(async () => {
     [owner, user0, user1] = await ethers.getSigners();
 
+    const APIConsumer: APIConsumer__factory = (await ethers.getContractFactory(
+      'APIConsumer',
+      owner
+    )) as APIConsumer__factory;
+    apiConsumer = await APIConsumer.connect(owner).deploy();
+    await apiConsumer.deployed();
+
     const BYStrategy: BestYieldStrategy__factory = (await ethers.getContractFactory(
       'BestYieldStrategy',
       owner
@@ -50,7 +60,9 @@ describe('Vault', function () {
     await vault.deployed();
 
     await byStrategy.connect(owner).setUser(vault.address);
+    await byStrategy.connect(owner).setOracle(apiConsumer.address);
     await newStrategy.connect(owner).setUser(vault.address);
+    await newStrategy.connect(owner).setOracle(apiConsumer.address);
   });
 
   describe('constructor', () => {
