@@ -46,8 +46,10 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
 
     // Calculate amount of yETH to be minted - if nobody minted, 100 yETH would be taken
     uint256 amountToMint;
-    (uint256 spotAmount, uint256 oracleAmount) = strategy.getExpectedWithdraw();
+    (uint256 spotAmount, uint256 oracleAmount, uint256 virtualAmount) = strategy
+      .getExpectedWithdraw();
     require(validate(spotAmount, oracleAmount), 'Vault: Tolerance rate exceeded');
+    require(validate(spotAmount, virtualAmount), 'Vault: Tolerance rate exceeded');
 
     if (totalSupply() == 0)
       amountToMint = 1e20;
@@ -72,8 +74,10 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
     require(amountYEth_ <= balanceOf(msg.sender), 'Vault: Insufficient yETH');
 
     // Calculate the amount of corresponding ether
-    (uint256 spotAmount, uint256 oracleAmount) = strategy.getExpectedWithdraw();
+    (uint256 spotAmount, uint256 oracleAmount, uint256 virtualAmount) = strategy
+      .getExpectedWithdraw();
     require(validate(spotAmount, oracleAmount), 'Vault: Tolerance rate exceeded');
+    require(validate(spotAmount, virtualAmount), 'Vault: Tolerance rate exceeded');
 
     uint256 amountToReturn = (amountYEth_ * (spotAmount + address(this).balance)) / totalSupply();
 
@@ -99,8 +103,10 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
    */
   function invest() external onlyOwner {
     // Check the possibility of investing
-    (uint256 spotAmount, uint256 oracleAmount) = strategy.getExpectedWithdraw();
+    (uint256 spotAmount, uint256 oracleAmount, uint256 virtualAmount) = strategy
+      .getExpectedWithdraw();
     require(validate(spotAmount, oracleAmount), 'Vault: Tolerance rate exceeded');
+    require(validate(spotAmount, virtualAmount), 'Vault: Tolerance rate exceeded');
 
     uint256 totalDeposited = address(this).balance + spotAmount;
     require(address(this).balance * 10 > totalDeposited, 'Vault: No ether to invest');
@@ -120,8 +126,10 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
    */
   function rebalance() external onlyOwner {
     // Check the possibility of rebalancing
-    (uint256 spotAmount, uint256 oracleAmount) = strategy.getExpectedWithdraw();
+    (uint256 spotAmount, uint256 oracleAmount, uint256 virtualAmount) = strategy
+      .getExpectedWithdraw();
     require(validate(spotAmount, oracleAmount), 'Vault: Tolerance rate exceeded');
+    require(validate(spotAmount, virtualAmount), 'Vault: Tolerance rate exceeded');
 
     uint256 totalDeposited = address(this).balance + spotAmount;
     require(address(this).balance < (totalDeposited / 10), 'Vault: No ether to rebalance');
@@ -155,18 +163,18 @@ contract Vault is ERC20, Ownable, ReentrancyGuard {
    * @notice  Validate the expected withdraw.
    * @dev     Check that two values are in the tolerance range.
    * @param   spotAmount_  Expected withdraw based on spot price.
-   * @param   oracleAmount_  Expected withdraw based on oracle price.
+   * @param   validateAmount_  Expected withdraw based on validation price.
    * @return  bool  Returns true if validated.
    */
-  function validate(uint256 spotAmount_, uint256 oracleAmount_) internal pure returns (bool) {
-    if (oracleAmount_ == spotAmount_) return true;
+  function validate(uint256 spotAmount_, uint256 validateAmount_) internal pure returns (bool) {
+    if (validateAmount_ == spotAmount_) return true;
 
     // In case of oracle price is bigger than spot price
-    if (oracleAmount_ > spotAmount_ && ((spotAmount_ * (100 + SLIPPAGE)) / 100 > oracleAmount_))
+    if (validateAmount_ > spotAmount_ && ((spotAmount_ * (100 + SLIPPAGE)) / 100 > validateAmount_))
       return true;
 
     // Otherwise
-    if (oracleAmount_ < spotAmount_ && ((oracleAmount_ * (100 + SLIPPAGE)) / 100 > spotAmount_))
+    if (validateAmount_ < spotAmount_ && ((validateAmount_ * (100 + SLIPPAGE)) / 100 > spotAmount_))
       return true;
 
     return false;

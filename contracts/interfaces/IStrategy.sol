@@ -8,5 +8,8 @@ interface IStrategy {
 
   function withdrawAll() external;
 
-  function getExpectedWithdraw() external view returns (uint256 spotAmount, uint256 oracleAmount);
+  function getExpectedWithdraw()
+    external
+    view
+    returns (uint256 spotAmount, uint256 oracleAmount, uint256 virtualAmount);
 }

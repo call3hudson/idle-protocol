@@ -3,7 +3,6 @@ pragma solidity 0.8.19;
 
 import '@chainlink/contracts/src/v0.8/ChainlinkClient.sol';
 import '@chainlink/contracts/src/v0.8/ConfirmedOwner.sol';
-import '@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol';
 import '../interfaces/IAPIConsumer.sol';
 
 /**

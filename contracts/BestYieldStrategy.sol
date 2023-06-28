@@ -31,6 +31,9 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard, Ownable {
   // Maximum slippage percent that could be ignored
   uint256 public constant SLIPPAGE = 5;
 
+  // Virtual prices
+  uint256 public virtualPrice = 0;
+
   // Occured when corresponding action triggered
   event Minted(address indexed sender, uint amountDeposited, uint idleMinted);
   event Withdrawn(address indexed sender, uint amountWithdrawn, uint idleWithdrawn);
@@ -142,14 +145,18 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard, Ownable {
    * @dev     Get the current Idle token price and multiplies to the supply.
    * @return  uint256  Expected amount to be withdrawn.
    */
-  function getExpectedWithdraw() external view onlyUser returns (uint256, uint256) {
+  function getExpectedWithdraw() external view onlyUser returns (uint256, uint256, uint256) {
     // Get the currrent token price to be withdrawn and multiplies to the supply
     uint256 spotPrice = IIdleToken(YIELD).tokenPrice();
     uint256 oraclePrice = IAPIConsumer(oracle).getValue();
 
     uint256 totalSupply = IERC20(YIELD).balanceOf(address(this));
 
-    return ((spotPrice * totalSupply) / 1e18, (oraclePrice * totalSupply) / 1e18);
+    return (
+      (spotPrice * totalSupply) / 1e18,
+      (oraclePrice * totalSupply) / 1e18,
+      (virtualPrice * totalSupply) / 1e18
+    );
   }
 
   /**
@@ -180,16 +187,26 @@ contract BestYieldStrategy is IStrategy, ReentrancyGuard, Ownable {
    * @param   price_  Target price.
    * @return  bool  Returns true if validated.
    */
-  function validatePrice(uint256 price_) internal view returns (bool) {
+  function validatePrice(uint256 price_) internal returns (bool) {
     // Get the oracle price
     uint256 oraclePrice = IAPIConsumer(oracle).getValue();
+    if (virtualPrice == 0) virtualPrice = oraclePrice;
 
     // In case of oracle price is bigger than spot price
-    if (oraclePrice > price_ && ((price_ * (100 + SLIPPAGE)) / 100 > oraclePrice)) return true;
+    if (oraclePrice > price_ && ((price_ * (100 + SLIPPAGE)) / 100 < oraclePrice)) return false;
 
     // Otherwise
-    if (oraclePrice < price_ && ((oraclePrice * (100 + SLIPPAGE)) / 100 > price_)) return true;
+    if (oraclePrice < price_ && ((oraclePrice * (100 + SLIPPAGE)) / 100 < price_)) return false;
 
-    return false;
+    // In case of virtual price is bigger than spot price
+    if (virtualPrice > price_ && ((price_ * (100 + SLIPPAGE)) / 100 < virtualPrice)) return false;
+
+    // Otherwise
+    if (virtualPrice < price_ && ((virtualPrice * (100 + SLIPPAGE)) / 100 < price_)) return false;
+
+    // Update virtual price as well
+    virtualPrice = price_;
+
+    return true;
   }
 }
