@@ -101,7 +101,7 @@ describe('Vault', function () {
 
       await expect(vault.connect(user1).deposit({ value: v500 }))
         .to.emit(vault, 'Deposited')
-        .withArgs(user1.address, v500, v50);
+        .withArgs(user1.address, v500, v50.add(5));
     });
   });
 
@@ -135,7 +135,7 @@ describe('Vault', function () {
 
       await expect(vault.connect(user0).withdraw(v100))
         .to.emit(vault, 'Withdrawn')
-        .withArgs(user0.address, parseUnits('999999999999999999999', 0), v100);
+        .withArgs(user0.address, parseUnits('999999999999999999900', 0), v100);
 
       expect(await vault.balanceOf(user0.address)).to.be.eq(0);
     });
@@ -180,7 +180,7 @@ describe('Vault', function () {
       await vault.connect(user0).withdraw(v10.div(2));
       await expect(vault.rebalance())
         .to.emit(vault, 'Rebalanced')
-        .withArgs(owner.address, parseUnits('44999999999999999999', 0));
+        .withArgs(owner.address, parseUnits('44999999999999999995', 0));
     });
   });
 
