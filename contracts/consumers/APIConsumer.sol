@@ -30,9 +30,13 @@ contract APIConsumer is ChainlinkClient, IAPIConsumer {
     setChainlinkOracle(0x6090149792dAAeE9D1D568c9f9a6F6B46AA29eFD);
 
     // Randomly generated job id
-    _jobID = 'ca98366cc7314956b8c012c72f05aeeb';
+    // _jobID = 'ca98366cc7314956b8c012c72f05aeeb';
+
+    // It's good to keep the job id as the api handle
+    _jobId = '41e90ced-d559-4433-b390-af424fdc76d6';
 
     // Dedicated LINK token per each request
+    // _fee = (1 * LINK_DIVISIBILITY) / 10;
     _fee = (1 * LINK_DIVISIBILITY) / 10;
 
     // Initial value
