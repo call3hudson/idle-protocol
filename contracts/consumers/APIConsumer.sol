@@ -25,7 +25,6 @@ contract APIConsumer is ChainlinkClient, IAPIConsumer {
   event RequestPrice(bytes32 indexed requestId, uint256 value);
 
   constructor() {
-    // LINK token address and oracle node address for Sepolia Testnet
     setChainlinkToken(0x779877A7B0D9E8603169DdbD7836e478b4624789);
     setChainlinkOracle(0x6090149792dAAeE9D1D568c9f9a6F6B46AA29eFD);
 
