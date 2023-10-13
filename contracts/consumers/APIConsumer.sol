@@ -6,7 +6,7 @@ import '@chainlink/contracts/src/v0.8/ConfirmedOwner.sol';
 import '../interfaces/IAPIConsumer.sol';
 
 /**
- * @author  Huang., Danny
+ * @author  Huang.
  * @title   External API call for Idle token price.
  * @dev     Retrieve price value from https://api.harvest.finance/vaults?key=41e90ced-d559-4433-b390-af424fdc76d6.
  * @notice  Strategies can verify the spot price with oracle price.
@@ -26,15 +26,14 @@ contract APIConsumer is ChainlinkClient, IAPIConsumer {
 
   constructor() {
     // LINK token address and oracle node address for Sepolia Testnet
-    // setChainlinkToken(0x779877A7B0D9E8603169DdbD7836e478b4624789);
-    // setChainlinkOracle(0x6090149792dAAeE9D1D568c9f9a6F6B46AA29eFD);
-
-    // Updated address for testnet version, should revert this change upon deployment
-    setChainlinkToken(0x23A4C092779877A7B0D8DdbD7836e478b4624789);
+    setChainlinkToken(0x779877A7B0D9E8603169DdbD7836e478b4624789);
     setChainlinkOracle(0x6090149792dAAeE9D1D568c9f9a6F6B46AA29eFD);
 
     // Randomly generated job id
-    _jobID = 'ca98366cc7314956b8c012c72f05aeeb';
+    // _jobID = 'ca98366cc7314956b8c012c72f05aeeb';
+
+    // It's good to keep the job id as the api handle
+    _jobId = '41e90ced-d559-4433-b390-af424fdc76d6';
 
     // Dedicated LINK token per each request
     _fee = (1 * LINK_DIVISIBILITY) / 10;
