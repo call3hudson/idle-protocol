@@ -36,6 +36,7 @@ contract APIConsumer is ChainlinkClient, IAPIConsumer {
     _jobId = '41e90ced-d559-4433-b390-af424fdc76d6';
 
     // Dedicated LINK token per each request
+    // _fee = (1 * LINK_DIVISIBILITY) / 10;
     _fee = (1 * LINK_DIVISIBILITY) / 10;
 
     // Initial value
